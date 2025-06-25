@@ -36,7 +36,11 @@ git clone https://github.com/mqxwd68/ISSAS.git && cd ISSAS
 ```
 cp ../checkpoints/sam2.1_hiera_large.pt SAM_model/sam2.1_hiera_large.pt
 ```
-### **5.  Launch APP**
+### **5.  Install dependencies**
+```
+ pip install PyQt5 matplotlib scipy opencv-python
+```
+### **6.  Launch APP**
 ```
  python main_app_annotation.py 
 ```
