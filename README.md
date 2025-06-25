@@ -33,5 +33,9 @@ git clone https://github.com/mqxwd68/ISSAS.git && cd ISSAS
 ```
 ### **4.  Copy Checkpoint to ISSAS**
 ```
-git clone https://github.com/mqxwd68/ISSAS.git && cd ISSAS
+cp ../checkpoints/sam2.1_hiera_large.pt SAM_model/sam2.1_hiera_large.pt
+```
+### **5.  Launch APP**
+```
+ python main_app_annotation.py 
 ```
