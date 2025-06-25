@@ -31,4 +31,7 @@ cd ..
 ```
 git clone https://github.com/mqxwd68/ISSAS.git && cd ISSAS
 ```
-
+### **4.  Copy Checkpoint to ISSAS**
+```
+git clone https://github.com/mqxwd68/ISSAS.git && cd ISSAS
+```
