@@ -28,6 +28,7 @@ cd ..
 ```
 
 ### **3.  Clone ISSAS into the root path of SAM2**
+Clone it in the root path of SAM2
 ```
 git clone https://github.com/mqxwd68/ISSAS.git && cd ISSAS
 ```
