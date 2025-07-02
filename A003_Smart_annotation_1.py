@@ -18,6 +18,7 @@ from PyQt5.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QBrush, QCursor
 from tqdm import tqdm
 from PIL import Image, ImageFilter, ImageDraw
 import numpy as np
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 from scipy.ndimage import binary_erosion, binary_dilation, label
 # import cv2
@@ -235,7 +236,7 @@ class ObjectButton(QWidget):
         self.layout.addWidget(self.button)
         self.setLayout(self.layout)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.show_context_menu)
+        # self.customContextMenuRequested.connect(self.show_context_menu)
 
         # 连接按钮点击事件
         self.button.clicked.connect(self.on_button_clicked)
@@ -1368,6 +1369,27 @@ class SmartAnnotationTool(QWidget):
         self.import_prompts_btn.clicked.connect(self.import_prompts)
         left_layout.addWidget(self.import_prompts_btn)
 
+        # ++++ 新添加的导入mask按钮 ++++
+        self.import_mask_btn = QPushButton("Import Mask")
+        self.import_mask_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #800080;
+                        color: white;
+                        font-weight: bold;
+                        padding: 8px;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #6a006a;
+                    }
+                """)
+        self.import_mask_btn.clicked.connect(self.import_mask)
+        left_layout.addWidget(self.import_mask_btn)
+
+        # 存储首次选择的mask路径和目录
+        self.first_mask_path = None
+        self.masks_base_dir = None
+
         # 对象滚动区域
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -1577,6 +1599,7 @@ class SmartAnnotationTool(QWidget):
         # 遍历所有可见对象
         for obj_id, mask, base_class_id in visible_mask_info:
             class_mask[mask] = base_class_id
+            print(f"Saving mask for obj_id {base_class_id}: {mask.shape}, {mask.sum()} non-zero pixels, maximum of mask is {np.max(mask)}")
             print(f"Saving visible mask for object {obj_id} with class ID {base_class_id}")
 
         # 保存PNG文件（调色板模式）
@@ -1955,7 +1978,7 @@ class SmartAnnotationTool(QWidget):
         # 检查是否有相同类别的对象存在
         existing_class_objs = [
             obj_id for obj_id, btn in self.obj_buttons.items()
-            if (obj_id // 1000) == class_id
+            if (obj_id // 1000 if obj_id > 999 else obj_id) == class_id
         ]
 
         # 计算序号后缀
@@ -2771,6 +2794,239 @@ class SmartAnnotationTool(QWidget):
             # 传递其他键盘事件给图像标签
             self.image_label.keyPressEvent(event)
 
+    def import_mask(self):
+        """导入当前帧对应的mask文件"""
+        if not self.frame_names:
+            QMessageBox.warning(self, "Error", "No frames loaded. Please load image folder first.")
+            return
+
+        # 获取当前帧名称（不带扩展名）
+        current_frame_path = self.frame_names[self.current_frame_idx]
+        frame_basename = os.path.splitext(os.path.basename(current_frame_path))[0]
+
+        # 如果尚未设置基础目录，让用户选择文件
+        if not self.masks_base_dir:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select Mask File (TXT or PNG)",
+                "",
+                "Mask Files (*.txt *.png)"
+            )
+
+            if not file_path:
+                return  # 用户取消了选择
+
+            self.first_mask_path = file_path
+            self.masks_base_dir = os.path.dirname(file_path)
+            print(f"First mask selected: {file_path}")
+
+        # 寻找与当前帧同名的mask文件
+        possible_files = [
+            os.path.join(self.masks_base_dir, f"{frame_basename}.txt"),
+            os.path.join(self.masks_base_dir, f"{frame_basename}.png")
+        ]
+
+        selected_file = None
+        for file_path in possible_files:
+            if os.path.exists(file_path):
+                selected_file = file_path
+                break
+
+        if not selected_file:
+            QMessageBox.warning(
+                self,
+                "File Not Found",
+                f"Could not find mask file for frame {frame_basename} in:\n{self.masks_base_dir}"
+            )
+            return
+
+        print(f"Loading mask file: {selected_file}")
+
+        # 根据文件类型解析mask
+        if selected_file.endswith('.txt'):
+            self.parse_yolo_txt(selected_file)
+        elif selected_file.endswith('.png'):
+            self.parse_palette_png(selected_file)
+
+        # 刷新显示
+        self.image_label.update_display()
+
+    def parse_yolo_txt(self, file_path):
+        """解析YOLO格式的TXT文件"""
+        try:
+            # 获取当前图像尺寸
+            if self.image_label.original_image:
+                w, h = self.image_label.original_image.size
+            else:
+                w, h = 640, 480  # 默认尺寸
+
+            # 读取文件内容
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+
+            # 删除当前帧的所有对象
+            self.image_label.reset_state()
+
+            # 按类别分组多边形
+            class_polygons = {}
+
+            # 遍历每一行（每个对象）
+            for line in lines:
+                parts = line.strip().split()
+                if not parts:
+                    continue
+
+                class_id = int(parts[0])
+
+                # 获取归一化多边形坐标
+                normalized_points = [float(x) for x in parts[1:]]
+                # 转换为绝对坐标
+                absolute_points = []
+                for i in range(0, len(normalized_points), 2):
+                    x = normalized_points[i] * w
+                    y = normalized_points[i + 1] * h
+                    absolute_points.append([x, y])
+
+                # 按类别分组多边形
+                if class_id not in class_polygons:
+                    class_polygons[class_id] = []
+                class_polygons[class_id].append(absolute_points)
+
+            # 为每个类别创建单个mask
+            for class_id, polygons in class_polygons.items():
+                # 查找或创建对象
+                obj_id = self.find_or_create_object(class_id)
+
+                # 创建组合mask
+                mask = self.polygons_to_mask(polygons, w, h)
+
+                # 添加mask
+                self.image_label.add_mask(obj_id, mask)
+                print(f"Import mask for obj_id {obj_id}: {mask.shape}, {mask.sum()} non-zero pixels")
+                # 更新按钮状态
+                if obj_id in self.obj_buttons:
+                    self.obj_buttons[obj_id].update_button_style(active=True)
+
+            print(f"Loaded {len(lines)} masks from YOLO TXT for {len(class_polygons)} classes")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to parse YOLO TXT file:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def parse_palette_png(self, file_path):
+        """解析调色板模式的PNG文件"""
+        try:
+            # 读取PNG文件
+            mask_img = Image.open(file_path)
+
+            # 检查调色板模式
+            if mask_img.mode != 'P':
+                QMessageBox.warning(self, "Invalid Format", "PNG file must be palette-indexed mode (P)")
+                return
+
+            # 获取调色板
+            palette = mask_img.getpalette()
+
+            # 转换为numpy数组
+            mask_array = np.array(mask_img)
+            w, h = mask_array.shape[1], mask_array.shape[0]
+
+            # 删除当前帧的所有对象
+            self.image_label.reset_state()
+
+            # 找出所有唯一的非零值（每个非零值对应一个类别）
+            unique_vals = np.unique(mask_array)
+            unique_vals = unique_vals[unique_vals != 0]  # 移除背景0
+
+            # 为每个唯一值创建一个mask
+            for value in unique_vals:
+                # 确保值在有效范围内 (0-255)
+                if value < 0 or value > 255:
+                    print(f"Warning: Skipping invalid palette index {value} (must be 0-255)")
+                    continue
+
+                # 查找类ID - 假设调色板索引对应类ID
+                class_id = value
+
+                # 创建二值mask
+                class_mask = (mask_array == value).astype(np.bool)
+
+                # 查找或创建对象
+                obj_id = self.find_or_create_object(class_id)
+
+                # 添加mask
+                self.image_label.add_mask(obj_id, class_mask)
+                print(f"Import mask for obj_id {obj_id}: {class_mask.shape}, {class_mask.sum()} non-zero pixels")
+
+                # 更新按钮状态
+                if obj_id in self.obj_buttons:
+                    self.obj_buttons[obj_id].update_button_style(active=True)
+
+            print(f"Loaded {len(unique_vals)} masks from PNG")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to parse PNG file:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def find_or_create_object(self, class_id):
+        """为指定类ID查找或创建新的对象"""
+        # 检查是否已有该类别的对象存在
+        for obj_id, btn in self.obj_buttons.items():
+            # 直接使用类ID作为对象ID
+            if obj_id == class_id:
+                return obj_id
+
+        # 没有找到，创建新对象
+        obj_id = class_id
+
+        # 尝试获取类名
+        class_name = "Unknown"
+        for name, id_val in class_map_all.items():
+            if int(id_val) == class_id:
+                class_name = name
+                break
+
+        # 生成唯一名称
+        existing_names = [btn.button.text() for btn in self.obj_buttons.values()]
+        suffix = 1
+        while f"{class_name}" in existing_names:
+            suffix += 1
+            class_name = f"{class_name}_{suffix}"
+
+        # 生成颜色
+        hue = (obj_id * 137.5) % 360
+        r, g, b = self.hsl_to_rgb(hue, 65, 60)
+        obj_color = (r, g, b, 180)
+
+        # 创建对象按钮
+        btn = ObjectButton(self, obj_id, class_name, obj_color[:3], active=True)
+        self.obj_buttons[obj_id] = btn
+        self.obj_colors[obj_id] = obj_color
+        self.obj_layout.addWidget(btn)
+
+        print(f"Created new object {obj_id} for class {class_name}")
+        return obj_id
+
+    def polygons_to_mask(self, polygons_list, w, h):
+        """将多个多边形转换为单个二值mask"""
+        # 创建空mask
+        mask = np.zeros((h, w), dtype=np.uint8)
+
+        # 使用PIL绘制所有多边形
+        img = Image.new('L', (w, h), 0)
+        draw = ImageDraw.Draw(img)
+
+        # 绘制所有多边形
+        for polygons in polygons_list:
+            # draw.polygon([tuple(p) for p in polygons], fill=1)
+            draw.polygon([tuple(p) for p in polygons], fill=True)
+
+        # 转换为numpy数组
+        mask = np.array(img)
+
+        return mask > 0
 
 if __name__ == "__main__":
     # 检查是否传递了文件夹路径作为参数
