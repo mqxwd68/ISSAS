@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QLabel, QFileDialog, QFrame, QScrollArea, QInputDialog, QMessageBox,
     QSizePolicy, QPushButton, QMenu, QSlider, QProgressDialog, QStatusBar, QLineEdit, QGroupBox, QProgressBar, QDialog, QTextEdit, QDesktopWidget, QComboBox
 )
-from PyQt5.QtCore import Qt, QPoint, QEvent, QTimer, QPropertyAnimation, QThread, pyqtSignal, QSize, QProcess
+from PyQt5.QtCore import Qt, QPoint, QEvent, QTimer, QPropertyAnimation, QThread, pyqtSignal, QSize, QProcess, QRect
 from PyQt5.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QBrush, QCursor, QFont, QMovie
 from tqdm import tqdm
 from PIL import Image, ImageFilter, ImageDraw
@@ -24,7 +24,7 @@ from scipy.ndimage import binary_erosion, binary_dilation, label
 # import cv2
 
 # 设置环境变量
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
 
 # Select computation device
 if torch.cuda.is_available():
@@ -78,7 +78,8 @@ class_map_t = {
     'Pancreas': '8',
     'Duodenal stump': '9',
     'Liver': '10',
-    'Gallbladder': '11', }  # 强制对应原图中的顺序调整
+    'Gallbladder': '11',
+    'Falciform ligament': '23'}  # 强制对应原图中的顺序调整
 
 class_map_i = {
     'Curved grasper': '12',
@@ -717,6 +718,96 @@ class ImageLabel(QLabel):
         self.setFixedSize(width, height)
         self.repaint()  # 强制立即重绘
 
+        ########################################################################
+        # 新增：更新缩略图（调用SmartAnnotationTool的方法）
+        # update thumbnail
+        # 新增：更新缩略图（直接操作SmartAnnotationTool的thumbnail_label）
+        # 新增：更新缩略图
+        if hasattr(self.smart_annotation_tool, 'thumbnail_label'):
+            # 创建当前显示图像的缩小版副本
+            thumbnail_img = final_img.copy()
+
+            # 获取缩略图容器的大小
+            container = self.smart_annotation_tool.thumbnail_container
+            max_width = container.width() - 20  # 减去内边距
+
+            # 保持宽高比缩小
+            width, height = thumbnail_img.size
+            if width > 0 and height > 0:
+                aspect_ratio = width / height
+
+                # 计算缩略图尺寸
+                if aspect_ratio > 1:  # 横向图像
+                    thumbnail_width = max_width
+                    thumbnail_height = int(max_width / aspect_ratio)
+                else:  # 纵向图像
+                    thumbnail_height = max_width
+                    thumbnail_width = int(max_width * aspect_ratio)
+
+                # 缩小图像
+                try:
+                    if hasattr(Image, 'Resampling'):
+                        thumbnail_img = thumbnail_img.resize(
+                            (thumbnail_width, thumbnail_height),
+                            Image.Resampling.LANCZOS
+                        )
+                    else:
+                        thumbnail_img = thumbnail_img.resize(
+                            (thumbnail_width, thumbnail_height),
+                            Image.LANCZOS
+                        )
+                except Exception as e:
+                    print(f"Error resizing thumbnail: {e}")
+                    thumbnail_img = thumbnail_img.resize((thumbnail_width, thumbnail_height))
+
+                # 转换为QPixmap
+                qimage = QImage(thumbnail_img.tobytes(), thumbnail_width, thumbnail_height, QImage.Format_RGB888)
+                thumbnail_pixmap = QPixmap.fromImage(qimage)
+
+                # 计算主界面可见区域在缩略图中的位置和大小
+                right_scroll = self.smart_annotation_tool.right_scroll
+                if right_scroll:
+                    # 关键修复：使用滚动条位置而不是 viewport 位置
+                    scroll_x = right_scroll.horizontalScrollBar().value()
+                    scroll_y = right_scroll.verticalScrollBar().value()
+
+                    # 获取视口大小
+                    viewport_size = right_scroll.viewport().size()
+
+                    # 计算缩放比例
+                    scale_x = thumbnail_width / width
+                    scale_y = thumbnail_height / height
+
+                    # 计算可见区域在缩略图中的位置
+                    visible_x = int(scroll_x * scale_x)
+                    visible_y = int(scroll_y * scale_y)
+                    visible_width = int(viewport_size.width() * scale_x)
+                    visible_height = int(viewport_size.height() * scale_y)
+
+                    # print(f"Scroll position: x={scroll_x}, y={scroll_y}")
+                    # print(f"Thumbnail viewport rect: {visible_x},{visible_y} {visible_width}x{visible_height}")
+
+                    # 关键修复：更新现有矩形框而不是创建新矩形
+                    thumbnail_label = self.smart_annotation_tool.thumbnail_label
+                    thumbnail_label.viewport_rect.setRect(
+                        visible_x, visible_y, visible_width, visible_height
+                    )
+                    thumbnail_label.scale_x = scale_x
+                    thumbnail_label.scale_y = scale_y
+
+                    # 强制刷新缩略图显示
+                    thumbnail_label.update()
+
+                # # 创建带有红色矩形框的缩略图
+                # painter = QPainter(thumbnail_pixmap)
+                # painter.setPen(QPen(QColor(255, 0, 0), 2))
+                # painter.drawRect(visible_x, visible_y, visible_width, visible_height)
+                # painter.end()
+
+                # 设置到缩略图标签
+                self.smart_annotation_tool.thumbnail_label.setPixmap(thumbnail_pixmap)
+                self.smart_annotation_tool.thumbnail_label.setFixedSize(thumbnail_width, thumbnail_height)
+
     def draw_mask_to_composite(self, composite, mask_array, color):
         """将掩码绘制到合成图层"""
         if mask_array is None or mask_array.size == 0:
@@ -1160,6 +1251,169 @@ class ImageLabel(QLabel):
         print(f"Set current object to: {obj_id}")
 
 
+class ThumbnailLabel(QLabel):
+    def __init__(self, smart_annotation_tool, parent=None):
+        super().__init__(parent)
+        self.smart_annotation_tool = smart_annotation_tool
+        self.setMouseTracking(True)
+        self.dragging = False
+        # 初始化矩形框尺寸
+        self.viewport_rect = QRect(50, 50, 200, 150)
+        self.scale_x = 1.0
+        self.scale_y = 1.0
+        self.update_scaling_factors()
+
+    def update_scaling_factors(self):
+        """更新主图像与缩略图的缩放比例"""
+        if self.smart_annotation_tool.image_label.pixmap():
+            main_width = self.smart_annotation_tool.image_label.pixmap().width()
+            main_height = self.smart_annotation_tool.image_label.pixmap().height()
+
+            if main_width > 0 and self.width() > 0:
+                self.scale_x = main_width / self.width()
+            if main_height > 0 and self.height() > 0:
+                self.scale_y = main_height / self.height()
+
+    def resizeEvent(self, event):
+        """窗口大小变化时更新缩放比例"""
+        super().resizeEvent(event)
+        self.update_scaling_factors()
+
+    def paintEvent(self, event):
+        """绘制红色矩形框和透明遮罩"""
+        # 首先调用父类绘制基础图像 - 这实际上会清除画布并绘制背景
+        super().paintEvent(event)
+
+        if self.pixmap() and not self.viewport_rect.isEmpty():
+            # 创建半透明遮罩效果
+            painter = QPainter(self)
+
+            # 创建半透明遮罩层 (30% 透明度)
+            overlay = QPixmap(self.size())
+            overlay.fill(Qt.transparent)
+
+            # 绘制半透明遮罩
+            overlay_painter = QPainter(overlay)
+            overlay_painter.fillRect(self.rect(), QColor(0, 0, 0, 76))  # 30% 透明度
+
+            # 清除矩形框区域的遮罩
+            overlay_painter.setCompositionMode(QPainter.CompositionMode_Clear)
+            overlay_painter.fillRect(self.viewport_rect, Qt.transparent)
+            overlay_painter.end()
+
+            # 关键修复：在绘制新内容前清除之前的内容
+            # 调用父类已经做了这个工作，所以这里不需要额外清除
+            # painter.eraseRect(event.rect())  # 替代方案
+
+            # 绘制遮罩层
+            painter.drawPixmap(0, 0, overlay)
+
+            # 绘制红色矩形框
+            painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
+            painter.drawRect(self.viewport_rect)
+
+            # 可选：在矩形框内添加透明填充
+            painter.setBrush(QBrush(QColor(255, 0, 0, 30)))  # 30% 透明的红色
+            painter.drawRect(self.viewport_rect)
+
+            painter.end()
+
+    def mousePressEvent(self, event):
+        if self.viewport_rect.contains(event.pos()):
+            self.dragging = True
+            self.drag_offset = event.pos() - self.viewport_rect.topLeft()
+        else:
+            new_center = event.pos()
+            self.move_viewport_to(new_center)
+            self.update()  # 触发重绘
+            self.smart_annotation_tool.image_label.update_display()
+
+    def mouseMoveEvent(self, event):
+        if self.dragging:
+            new_top_left = event.pos() - self.drag_offset
+
+            # 确保不超出边界
+            new_top_left.setX(max(0, min(new_top_left.x(), self.width() - self.viewport_rect.width())))
+            new_top_left.setY(max(0, min(new_top_left.y(), self.height() - self.viewport_rect.height())))
+
+            self.viewport_rect.moveTopLeft(new_top_left)
+            self.update_main_viewport()
+            self.update()  # 关键：触发重绘
+
+    def mouseReleaseEvent(self, event):
+        self.dragging = False
+
+    def move_viewport_to(self, position):
+        """移动矩形框中心到指定位置"""
+        # 计算新的矩形位置
+        new_x = position.x() - self.viewport_rect.width() // 2
+        new_y = position.y() - self.viewport_rect.height() // 2
+
+        # 边界检查
+        new_x = max(0, min(new_x, self.width() - self.viewport_rect.width()))
+        new_y = max(0, min(new_y, self.height() - self.viewport_rect.height()))
+
+        self.viewport_rect.moveTo(new_x, new_y)
+        self.update_main_viewport()
+
+    def update_main_viewport(self):
+        """同步更新主视图位置"""
+        # 检查主窗口滚动区域是否存在
+        if not hasattr(self.smart_annotation_tool, 'right_scroll') or \
+                not self.smart_annotation_tool.right_scroll:
+            return
+
+        # 使用最新缩放因子
+        self.update_scaling_factors()
+
+        # 转换坐标
+        main_x = int(self.viewport_rect.x() * self.scale_x)
+        main_y = int(self.viewport_rect.y() * self.scale_y)
+
+        # 设置滚动条位置
+        self.smart_annotation_tool.right_scroll.horizontalScrollBar().setValue(main_x)
+        self.smart_annotation_tool.right_scroll.verticalScrollBar().setValue(main_y)
+
+        # 强制刷新主视图
+        self.smart_annotation_tool.image_label.update_display()
+        self.smart_annotation_tool.image_label.repaint()
+
+    def update_viewport_from_main(self):
+        """根据主界面的滚动状态更新矩形框位置"""
+        # 检查主窗口滚动区域是否存在
+        if not hasattr(self.smart_annotation_tool, 'right_scroll') or \
+                not self.smart_annotation_tool.right_scroll:
+            return
+
+        # 获取主界面的滚动位置
+        scroll_area = self.smart_annotation_tool.right_scroll
+        scroll_x = scroll_area.horizontalScrollBar().value()
+        scroll_y = scroll_area.verticalScrollBar().value()
+
+        # 获取主视图大小
+        viewport_size = scroll_area.viewport().size()
+
+        # 更新缩放因子
+        self.update_scaling_factors()
+
+        # 计算缩略图中的矩形框位置
+        if self.scale_x > 0 and self.scale_y > 0:
+            # 计算矩形框左上角位置
+            thumb_x = int(scroll_x / self.scale_x)
+            thumb_y = int(scroll_y / self.scale_y)
+
+            # 计算矩形框尺寸
+            thumb_width = int(viewport_size.width() / self.scale_x)
+            thumb_height = int(viewport_size.height() / self.scale_y)
+
+            # 确保不超出边界
+            thumb_x = max(0, min(thumb_x, self.width() - thumb_width))
+            thumb_y = max(0, min(thumb_y, self.height() - thumb_height))
+
+            # 更新矩形框
+            self.viewport_rect = QRect(thumb_x, thumb_y, thumb_width, thumb_height)
+            self.update()  # 触发重绘
+
 class SmartAnnotationTool(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1308,7 +1562,7 @@ class SmartAnnotationTool(QWidget):
         operation_layout.addWidget(morph_group)
         operation_layout.addWidget(connect_group)
         operation_layout.addStretch(1)
-        operation_layout.addWidget(save_info)
+        # operation_layout.addWidget(save_info)
 
         # 添加保存状态变量
         self.save_yolo_path = None
@@ -1391,130 +1645,332 @@ class SmartAnnotationTool(QWidget):
         self.masks_base_dir = None
 
         # 对象滚动区域
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("background-color: white; border: none;")
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("background-color: white; border: none;")
         self.obj_container = QWidget()
         self.obj_layout = QVBoxLayout(self.obj_container)
         self.obj_layout.setAlignment(Qt.AlignTop)
         self.obj_layout.setSpacing(5)
-        scroll_area.setWidget(self.obj_container)
-        left_layout.addWidget(scroll_area)
+        self.scroll_area.setWidget(self.obj_container)
+        left_layout.addWidget(self.scroll_area)
 
         content_layout.addWidget(left_panel)
 
         # 右侧滚动区域
-        right_scroll = QScrollArea()
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setStyleSheet("background-color: #2c2c2c;")
+        self.right_scroll = QScrollArea()
+        self.right_scroll.setWidgetResizable(True)
+        self.right_scroll.setStyleSheet("background-color: #2c2c2c;")
         self.image_label = ImageLabel(self)
         self.image_label.setStyleSheet("background-color: #3a3a3a;")
-        right_scroll.setWidget(self.image_label)
-        content_layout.addWidget(right_scroll, 1)  # 右边区域占主要空间
+        self.right_scroll.setWidget(self.image_label)
+        content_layout.addWidget(self.right_scroll, 1)  # 右边区域占主要空间
+        # 连接滚动条信号
+        self.right_scroll.horizontalScrollBar().valueChanged.connect(self.update_thumbnail)
+        self.right_scroll.verticalScrollBar().valueChanged.connect(self.update_thumbnail)
 
         main_layout.addLayout(content_layout)
 
-        # 底部布局 - 帧导航和滚动条
-        bottom_layout = QHBoxLayout()
+        # 创建主底部布局（水平分割：左侧工具区 + 右侧缩略图区）
+        bottom_main_layout = QHBoxLayout()
+        bottom_main_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_main_layout.setSpacing(10)
 
-        # 导航按钮
+        # ---------------------------
+        # 左侧面板（工具控制区域）
+        # ---------------------------
+        left_tools_panel = QWidget()
+        left_tools_layout = QVBoxLayout(left_tools_panel)
+        left_tools_layout.setContentsMargins(0, 0, 0, 0)
+        left_tools_layout.setSpacing(5)
+
+        # === 第一行：帧导航（按钮 + 进度条 + 进度数字） ===
+        frame_nav_row = QHBoxLayout()
+        frame_nav_row.setSpacing(5)
+
+        # 导航按钮（保持不变）
         self.prev_btn = QPushButton("⬅ Previous Frame")
         self.next_btn = QPushButton("Next Frame ➡")
-
-        # 设置导航按钮样式
         nav_style = """
             QPushButton {
                 background-color: #2196F3;
                 color: white;
-                padding: 8px;
+                padding: 5px 10px;
                 border-radius: 4px;
+                font-size: 12px;
             }
-            QPushButton:hover {
-                background-color: #0b7dda;
-            }
-            QPushButton:disabled {
-                background-color: #b0bec5;
-            }
+            QPushButton:hover { background-color: #0b7dda; }
+            QPushButton:disabled { background-color: #b0bec5; }
         """
         self.prev_btn.setStyleSheet(nav_style)
         self.next_btn.setStyleSheet(nav_style)
-
         self.prev_btn.clicked.connect(self.prev_frame)
         self.next_btn.clicked.connect(self.next_frame)
 
-        bottom_layout.addWidget(self.prev_btn)
-        bottom_layout.addWidget(self.next_btn)
+        frame_nav_row.addWidget(self.prev_btn)
+        frame_nav_row.addWidget(self.next_btn)
 
-        # 滚动条
+        # 进度条（紧跟在按钮后面）
         self.frame_slider = QSlider(Qt.Horizontal)
         self.frame_slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 background: #cccccc;
-                height: 8px;
-                border-radius: 4px;
+                height: 6px;
+                border-radius: 3px;
             }
             QSlider::handle:horizontal {
                 background: #2196F3;
-                width: 16px;
-                height: 16px;
+                width: 14px;
+                height: 14px;
                 margin: -4px 0;
-                border-radius: 8px;
+                border-radius: 7px;
             }
             QSlider::sub-page:horizontal {
                 background: #2196F3;
-                border-radius: 4px;
+                border-radius: 3px;
             }
         """)
         self.frame_slider.valueChanged.connect(self.slider_value_changed)
-        bottom_layout.addWidget(self.frame_slider, 1)
+        frame_nav_row.addWidget(self.frame_slider, 1)  # 占用更多空间
 
-        main_layout.addLayout(bottom_layout)
-        # 在底部布局中创建帧数标签
-        self.frame_position_label = QLabel()
-        self.frame_position_label.setStyleSheet("""
-                    QLabel {
-                        color: #333;
-                        font-weight: bold;
-                        padding: 0 10px;
-                    }
-                """)
-        bottom_layout.addWidget(self.frame_position_label)
+        # 进度数字（紧跟在进度条后面）
+        position_container = QWidget()
+        position_layout = QHBoxLayout(position_container)
+        position_layout.setContentsMargins(5, 0, 5, 0)
 
-        # UI中添加提示帧标签
-        self.status_bar = QStatusBar()
-        main_layout.addWidget(self.status_bar)
-        self.update_prompt_status()
+        position_label = QLabel("Position:")
+        position_label.setStyleSheet("font-weight: bold;")
 
-        # 创建刷子控制布局
-        brush_control_widget = QWidget()
-        brush_layout = QHBoxLayout(brush_control_widget)
+        self.position_value_label = QLabel("0/0")
+        self.position_value_label.setMinimumWidth(60)  # 保持足够的宽度显示数字
 
-        # 设置刷子控制部件的固定宽度（屏幕宽度的1/6）
-        screen_width = QApplication.primaryScreen().size().width()
-        brush_control_width = max(200, int(screen_width / 6))
-        brush_control_widget.setFixedWidth(brush_control_width)
-        # 在底部添加刷子大小控制
-        # brush_layout = QHBoxLayout()
-        brush_layout.addWidget(QLabel("Brush Size:"))
+        position_layout.addWidget(position_label)
+        position_layout.addWidget(self.position_value_label)
 
+        frame_nav_row.addWidget(position_container)
+
+        left_tools_layout.addLayout(frame_nav_row)
+
+        # === 第二行：工具设置（刷子、帧导航、图像处理） ===
+        tools_row = QHBoxLayout()
+        tools_row.setSpacing(10)
+
+        # 刷子设置 - 保持不变
         self.brush_slider = QSlider(Qt.Horizontal)
         self.brush_slider.setMinimum(5)
         self.brush_slider.setMaximum(100)
-        self.brush_slider.setValue(self.brush_size)
+        self.brush_slider.setValue(20)
         self.brush_slider.valueChanged.connect(self.update_brush_size)
-        brush_layout.addWidget(self.brush_slider)
 
-        self.brush_size_label = QLabel(f"{self.brush_size}px")
+        self.brush_size_label = QLabel("20px")
+        self.brush_size_label.setMinimumWidth(30)
+
+        brush_layout = QHBoxLayout()
+        brush_layout.addWidget(QLabel("Brush Size:"))
+        brush_layout.addWidget(self.brush_slider)
         brush_layout.addWidget(self.brush_size_label)
 
-        main_layout.addLayout(brush_layout)
-        main_layout.addWidget(brush_control_widget)
-        # 将帧导航添加到主布局
-        main_layout.addWidget(frame_nav_widget)
-        # 新的操作（高斯平滑，形态学开闭，连通分量）添加到主布局
-        main_layout.addWidget(operation_panel)
-        # 设置初始焦点
-        self.image_label.setFocus()
+        # 将刷子设置添加到工具行
+        tools_row.addLayout(brush_layout)
+
+        # 帧导航输入框 - 保持不变
+        frame_nav_layout = QHBoxLayout()
+        self.frame_input = QLineEdit()
+        self.frame_input.setPlaceholderText("Enter frame name or number")
+        self.frame_input.returnPressed.connect(self.jump_to_frame)
+
+        go_button = QPushButton("Go")
+        go_button.clicked.connect(self.jump_to_frame)
+
+        frame_nav_layout.addWidget(QLabel("Frame Navigation:"))
+        frame_nav_layout.addWidget(self.frame_input)
+        frame_nav_layout.addWidget(go_button)
+
+        # 将帧导航添加到工具行
+        tools_row.addLayout(frame_nav_layout)
+
+        # 图像处理面板 - 保持不变
+        # 高斯平滑控制
+        gauss_layout = QHBoxLayout()
+        gauss_layout.addWidget(QLabel("Gaussian:"))
+        gauss_layout.addWidget(QLabel("Kernel:"))  # 添加 "Kernel:" 文本
+        self.gauss_value_label = QLabel("17")
+        gauss_up_btn = QPushButton("↑")  # 使用箭头而非"+"符号
+        gauss_down_btn = QPushButton("↓")  # 使用箭头而非"-"符号
+        gauss_up_btn.setFixedWidth(25)
+        gauss_down_btn.setFixedWidth(25)
+        gauss_up_btn.clicked.connect(lambda: self.adjust_kernel_size('gaussian', 2))
+        gauss_down_btn.clicked.connect(lambda: self.adjust_kernel_size('gaussian', -2))
+
+        gauss_layout.addWidget(self.gauss_value_label)
+        gauss_layout.addWidget(gauss_up_btn)
+        gauss_layout.addWidget(gauss_down_btn)
+
+        # 形态学操作控制 - 保持不变
+        morph_layout = QHBoxLayout()
+        morph_layout.addWidget(QLabel("Morphology:"))
+        morph_layout.addWidget(QLabel("Kernel:"))  # 添加 "Kernel:" 文本
+        self.morph_value_label = QLabel("17")
+        morph_up_btn = QPushButton("↑")  # 使用箭头
+        morph_down_btn = QPushButton("↓")  # 使用箭头
+        morph_up_btn.setFixedWidth(25)
+        morph_down_btn.setFixedWidth(25)
+        morph_up_btn.clicked.connect(lambda: self.adjust_kernel_size('morph', 2))
+        morph_down_btn.clicked.connect(lambda: self.adjust_kernel_size('morph', -2))
+
+        morph_layout.addWidget(self.morph_value_label)
+        morph_layout.addWidget(morph_up_btn)
+        morph_layout.addWidget(morph_down_btn)
+
+        # 连通分量控制 - 保持不变
+        connect_layout = QHBoxLayout()
+        connect_layout.addWidget(QLabel("Components:"))
+        connect_layout.addWidget(QLabel("Keep:"))  # 添加 "Keep:" 文本
+        self.connect_value_label = QLabel("1")
+        connect_up_btn = QPushButton("↑")  # 使用箭头
+        connect_down_btn = QPushButton("↓")  # 使用箭头
+        connect_up_btn.setFixedWidth(25)
+        connect_down_btn.setFixedWidth(25)
+        connect_up_btn.clicked.connect(lambda: self.adjust_kernel_size('connect', 1))
+        connect_down_btn.clicked.connect(lambda: self.adjust_kernel_size('connect', -1))
+
+        connect_layout.addWidget(self.connect_value_label)
+        connect_layout.addWidget(connect_up_btn)
+        connect_layout.addWidget(connect_down_btn)
+
+        # 将三个图像处理组件放入一个水平布局
+        # 创建图像处理容器框
+        image_processing_container = QGroupBox()
+        image_processing_container.setObjectName("ProcessingContainer")
+        image_processing_container.setStyleSheet("""
+            QGroupBox#ProcessingContainer {
+                border: 1px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 5px;
+                padding: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 0 5px;
+                background-color: transparent;
+                color: #555;
+                font-weight: bold;
+            }
+        """)
+        image_processing_container.setTitle("Processing Parameters")
+
+        # 创建水平布局作为容器内容
+        image_processing_layout = QHBoxLayout(image_processing_container)
+        image_processing_layout.setContentsMargins(10, 15, 10, 5)  # 上边距更大以适应标题
+        image_processing_layout.setSpacing(15)
+
+        # image_processing_layout = QHBoxLayout()
+        image_processing_layout.addLayout(gauss_layout)
+        image_processing_layout.addLayout(morph_layout)
+        image_processing_layout.addLayout(connect_layout)
+
+        # # 将图像处理添加到工具行
+        # tools_row.addLayout(image_processing_layout)
+        # 将整个图像处理容器添加到工具行
+        tools_row.addWidget(image_processing_container)
+
+        left_tools_layout.addLayout(tools_row)
+
+        # === 第三行：状态信息 ===
+        status_row = QHBoxLayout()
+        status_row.setSpacing(10)
+
+        # 状态容器（类似截图中的框）
+        status_container = QWidget()
+        status_container.setStyleSheet("""
+            background-color: #f0f0f0;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            padding: 5px;
+        """)
+        status_layout = QHBoxLayout(status_container)
+        status_layout.setSpacing(15)
+
+        # 当前帧状态 - 使用截图中的标签名
+
+        # self.current_frame_label = QLabel("Current frame: -")
+        # self.current_frame_label.setMinimumWidth(160)  # 足够宽度显示文件名
+        #
+        # # 提示帧状态 - 使用截图中的标签名
+        # self.prompt_frame_label = QLabel("Prompt frame: -")
+        # self.prompt_frame_label.setMinimumWidth(150)
+        #
+        # # 画笔状态 - 使用截图中的标签名
+        # self.brush_status = QLabel("Brush Mode: INACTIVE")
+        # self.brush_status.setStyleSheet("color: #d9534f;")
+        self.status_bar = QStatusBar()
+        # status_layout.addWidget(self.current_frame_label)
+        # status_layout.addWidget(self.prompt_frame_label)
+        # status_layout.addWidget(self.brush_status)
+
+        status_row.addWidget(self.status_bar)
+        left_tools_layout.addLayout(status_row)
+        self.update_prompt_status()
+        # 将左侧工具区添加到主布局
+        bottom_main_layout.addWidget(left_tools_panel, 3)  # 3份宽度
+
+        # ---------------------------
+        # 右侧面板（缩略图区域）
+        # ---------------------------
+        right_thumbnail_panel = QWidget()
+        right_thumbnail_layout = QVBoxLayout(right_thumbnail_panel)
+        right_thumbnail_layout.setContentsMargins(0, 0, 0, 0)
+        right_thumbnail_layout.setSpacing(0)
+
+        # 缩略图容器 - 保持不变
+        self.thumbnail_container = QWidget()
+        self.thumbnail_container.setMinimumWidth(200)  # 缩略图宽度
+        thumbnail_layout = QVBoxLayout(self.thumbnail_container)
+        thumbnail_layout.setContentsMargins(5, 0, 5, 0)  # 左右5像素边距
+
+        # 修改缩略图标签为自定义类
+        self.thumbnail_label = ThumbnailLabel(self)
+        self.thumbnail_label.setAlignment(Qt.AlignCenter)
+        self.thumbnail_label.setStyleSheet("""
+            QLabel {
+                background-color: #2c2c2c;
+                border: 1px solid #777;
+                border-radius: 4px;
+                padding: 2px;
+            }
+        """)
+        self.thumbnail_label.setFixedHeight(100)  # 固定高度
+
+        thumbnail_layout.addWidget(self.thumbnail_label)
+        right_thumbnail_layout.addWidget(self.thumbnail_container)
+
+        # 将右侧缩略图区添加到主布局
+        bottom_main_layout.addWidget(right_thumbnail_panel, 1)  # 1份宽度
+
+        # 添加到主布局
+        main_layout.addLayout(bottom_main_layout)
+
+    def update_thumbnail(self):
+        """当主视图滚动时更新缩略图的矩形框位置"""
+        if hasattr(self, 'thumbnail_label') and self.thumbnail_label:
+            self.thumbnail_label.update_viewport_from_main()
+
+    def update_main_display(self):
+        """供外部调用的更新方法"""
+        self.image_label.update_display()
+
+    def resizeEvent(self, event):
+        """窗口大小改变时更新缩略图容器大小"""
+        super().resizeEvent(event)
+        screen_width = QApplication.primaryScreen().size().width()
+        thumbnail_width = max(200, int(screen_width / 10))
+        self.thumbnail_container.setFixedWidth(thumbnail_width)
+
+        # 如果有图像加载，更新缩略图
+        if hasattr(self.image_label, 'original_image') and self.image_label.original_image:
+            self.image_label.update_display()
+
 
     def highlight_operation(self, operation_name):
         """高亮显示操作面板"""
@@ -1743,20 +2199,20 @@ class SmartAnnotationTool(QWidget):
             self.connect_components = new_size
             self.connect_value_label.setText(f"{self.connect_components}")  # 直接更新成员变量
 
-    def update_frame_position_label(self):
-        """更新帧位置标签"""
-        if not self.frame_names or self.current_frame_idx < 0:
-            return
-
-        # 获取文件名和后缀
-        frame_name = os.path.basename(self.frame_names[self.current_frame_idx])
-        name_part, ext_part = os.path.splitext(frame_name)
-
-        # 更新标签
-        self.frame_position_label.setText(f"Frame {self.current_frame_idx + 1}/{len(self.frame_names)}: {name_part}")
-
-        # 更新后缀标签
-        self.frame_suffix_label.setText(ext_part)
+    # def update_frame_position_label(self):
+    #     """更新帧位置标签"""
+    #     if not self.frame_names or self.current_frame_idx < 0:
+    #         return
+    #
+    #     # 获取文件名和后缀
+    #     frame_name = os.path.basename(self.frame_names[self.current_frame_idx])
+    #     name_part, ext_part = os.path.splitext(frame_name)
+    #
+    #     # 更新标签
+    #     self.position_value_label.setText(f"Frame {self.current_frame_idx + 1}/{len(self.frame_names)}: {name_part}")
+    #
+    #     # 更新后缀标签
+    #     self.frame_suffix_label.setText(ext_part)
 
     def jump_to_frame(self):
         # 检查未保存修改
@@ -2363,7 +2819,7 @@ class SmartAnnotationTool(QWidget):
     def update_frame_position_label(self):
         """更新帧位置标签显示"""
         text = f"{self.current_frame_idx + 1}/{len(self.frame_names)}"
-        self.frame_position_label.setText(text)
+        self.position_value_label.setText(text)
 
     def save_current_frame_state(self):
         """保存当前帧的状态"""
