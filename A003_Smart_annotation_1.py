@@ -40,14 +40,32 @@ try:
     from sam2.build_sam import build_sam2_video_predictor
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    # sam2_checkpoint_t = os.path.join(script_dir, "SAM_model/checkpoint-20250612.pt")
+    #######################################################################################
+    # The none fine-tuning
+
+    # sam2_checkpoint_t = os.path.join(script_dir, "../checkpoints/sam2.1_hiera_tiny.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
+
     sam2_checkpoint_t = os.path.join(script_dir, "SAM_model/sam2.1_hiera_large.pt")
     model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
+
+    # sam2_checkpoint_t = os.path.join(script_dir, "../checkpoints/sam2.1_hiera_base_plus.pt")
+    # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
     ########################################################################################
-    # From MedSAM2
-    # sam2_checkpoint_t = os.path.join(script_dir, "MedSAM2_models/MedSAM2_US_Heart.pt")
+    # The fine-tuned
+
+    # sam2_checkpoint_t = os.path.join(script_dir, "MedSAM2_models/checkpoint_t_S01_ft.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
+
+    # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_tiny_crf_finetune.yaml/checkpoints/checkpoint_t_S01_ft.pt")
+    # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
+
+    # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_b+_crf_finetune.yaml/checkpoints/checkpoint_b+_S01_40.pt")
+    # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
+
+    # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01_17.pt")
+    # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
+
 
     try:
         predictor = build_sam2_video_predictor(model_cfg_t, sam2_checkpoint_t, device=device)
@@ -79,7 +97,8 @@ class_map_t = {
     'Duodenal stump': '9',
     'Liver': '10',
     'Gallbladder': '11',
-    'Falciform ligament': '23'}  # 强制对应原图中的顺序调整
+    'Falciform ligament': '23',
+    'Stomach':'24'}  # 强制对应原图中的顺序调整
 
 class_map_i = {
     'Curved grasper': '12',
@@ -92,7 +111,8 @@ class_map_i = {
     'Nndoscopic scissor': '19',
     'Needle holder': '20',
     'Needle': '21',
-    'Suture': '22'
+    'Suture': '22',
+    'Hemoloc applier':'25'
 }
 
 # 合并两个映射表
@@ -338,10 +358,11 @@ class ObjectButton(QWidget):
                 self.deleteLater()
 
     def eventFilter(self, source, event):
-        """事件过滤器处理鼠标双击"""
+        """事件过滤器处理鼠标双击和键盘W/S键"""
         if event.type() == QEvent.MouseButtonDblClick:
             if event.button() == Qt.LeftButton:
                 # 触发闪烁效果
+                print("Button clicked")
                 self.main_window.highlight_mask(self.obj_id)
 
                 # 选择此对象
@@ -356,7 +377,6 @@ class ObjectButton(QWidget):
                 return True  # 事件已处理
 
         return super().eventFilter(source, event)
-
 
 class ImageLabel(QLabel):
     def __init__(self, smart_annotation_tool, parent=None):
@@ -1250,7 +1270,6 @@ class ImageLabel(QLabel):
         self.current_obj_id = obj_id
         print(f"Set current object to: {obj_id}")
 
-
 class ThumbnailLabel(QLabel):
     def __init__(self, smart_annotation_tool, parent=None):
         super().__init__(parent)
@@ -1659,6 +1678,7 @@ class SmartAnnotationTool(QWidget):
 
         # 右侧滚动区域
         self.right_scroll = QScrollArea()
+        self.right_scroll.setAlignment(Qt.AlignCenter)  # 关键设置：内容居中
         self.right_scroll.setWidgetResizable(True)
         self.right_scroll.setStyleSheet("background-color: #2c2c2c;")
         self.image_label = ImageLabel(self)
@@ -2309,9 +2329,6 @@ class SmartAnnotationTool(QWidget):
         new_mode = not self.image_label.brush_mode
         self.image_label.set_brush_mode(new_mode, self.brush_size)
 
-        # if new_mode:
-        # self.highlight_mask(self.image_label.current_obj_id)
-
         if not new_mode:
             # 确保光标恢复正常
             self.image_label.setCursor(Qt.ArrowCursor)
@@ -2478,6 +2495,8 @@ class SmartAnnotationTool(QWidget):
 
         # 选择新对象
         self.select_object(btn)
+        # here to make sure that each frame will have a propogation from the add_obj_button
+        self.initialize_video_propagation()
 
     def highlight_mask(self, obj_id):
         """高亮显示指定对象的掩码（闪烁效果）"""
@@ -2756,6 +2775,8 @@ class SmartAnnotationTool(QWidget):
 
         # 确保图像标签获得焦点
         self.image_label.setFocus()
+        # if highlight_mask:
+        #     self.highlight_mask(btn.obj_id)
         print(f"Selected object: {btn.obj_id}")
 
     def delete_object(self, obj_id):
@@ -3240,12 +3261,57 @@ class SmartAnnotationTool(QWidget):
             import traceback
             traceback.print_exc()
 
+    def get_sorted_buttons(self):
+        """获取按垂直布局顺序排序的按钮列表"""
+        if not hasattr(self, 'obj_layout') or not self.obj_layout:
+            return []
+
+        # 从布局中提取所有按钮（从上到下顺序）
+        button_list = []
+        for i in range(self.obj_layout.count()):
+            item = self.obj_layout.itemAt(i)
+            if item and (widget := item.widget()):
+                if isinstance(widget, ObjectButton):
+                    button_list.append(widget)
+        return button_list
+
     def keyPressEvent(self, event):
         # 键盘事件：A键后退一帧，D键前进一帧
         if event.key() == Qt.Key_A:
             self.prev_frame()
         elif event.key() == Qt.Key_D:
             self.next_frame()
+        elif event.key() in (Qt.Key_W, Qt.Key_S):
+            # 获取按布局顺序排列的按钮
+            button_list = self.get_sorted_buttons()
+            if not button_list:  # 没有按钮时不做任何操作
+                return
+
+            # 查找当前选中按钮的索引
+            current_idx = None
+            for i, btn in enumerate(button_list):
+                if btn.button.isChecked():
+                    current_idx = i
+                    break
+
+            # 如果没有选中任何按钮，默认选中第一个
+            if current_idx is None:
+                button_list[0].on_button_clicked()
+                return
+
+            # 计算新索引（循环滚动）
+            if event.key() == Qt.Key_W:  # 上移
+                new_idx = current_idx - 1 if current_idx > 0 else len(button_list) - 1
+                obj_id = button_list[new_idx].obj_id
+                self.highlight_mask(obj_id)
+
+            else:  # 下移 (Key_S)
+                new_idx = current_idx + 1 if current_idx < len(button_list) - 1 else 0
+                obj_id = button_list[new_idx].obj_id
+                self.highlight_mask(obj_id)
+
+            # 触发新按钮的点击
+            button_list[new_idx].on_button_clicked()
         else:
             # 传递其他键盘事件给图像标签
             self.image_label.keyPressEvent(event)
