@@ -1109,12 +1109,13 @@ class ImageLabel(QLabel):
                 print(f"Toggled mask visibility for object {self.current_obj_id} to "
                       f"{'visible' if self.obj_mask_visible[self.current_obj_id] else 'hidden'}")
                 print(self.obj_mask_visible)
-            else:
-                # 切换所有掩码的全局可见性
-                self.masks_visible = not self.masks_visible
-                self.points_visible = not self.points_visible
-                self.boxes_visible = not self.boxes_visible
-                print(f"Points, masks and boxes are now {'visible' if self.masks_visible else 'hidden'}")
+            self.update_display()
+        elif event.key() == Qt.Key_Y:
+            # 切换所有掩码的全局可见性
+            self.masks_visible = not self.masks_visible
+            self.points_visible = not self.points_visible
+            self.boxes_visible = not self.boxes_visible
+            print(f"Points, masks and boxes are now {'visible' if self.masks_visible else 'hidden'}")
             self.update_display()
         # 按键'C'：清除当前对象的所有点和框
         elif event.key() == Qt.Key_R and self.current_obj_id:
