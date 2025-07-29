@@ -2363,10 +2363,11 @@ class SmartAnnotationTool(QWidget):
             return
 
         # 检查未保存修改
-        result = self.check_for_unsaved_changes()
-        if result != QMessageBox.Yes:
-            if result == QMessageBox.Cancel:
-                return
+        # now we dont check here to get avoid of the double check with next/pre frame
+        # result = self.check_for_unsaved_changes()
+        # if result != QMessageBox.Yes:
+        #     if result == QMessageBox.Cancel:
+        #         return
 
         # 保存当前帧状态
         self.save_current_frame_state()
