@@ -24,7 +24,7 @@ from scipy.ndimage import binary_erosion, binary_dilation, label
 # import cv2
 
 # 设置环境变量
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 # Select computation device
 if torch.cuda.is_available():
@@ -41,7 +41,7 @@ try:
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     #######################################################################################
-    # The none fine-tuning
+    # The w/o fine-tuning
 
     # sam2_checkpoint_t = os.path.join(script_dir, "../checkpoints/sam2.1_hiera_tiny.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
@@ -52,7 +52,7 @@ try:
     # sam2_checkpoint_t = os.path.join(script_dir, "../checkpoints/sam2.1_hiera_base_plus.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
     ########################################################################################
-    # The fine-tuned
+    # FThe fine-tuned
 
     # sam2_checkpoint_t = os.path.join(script_dir, "MedSAM2_models/checkpoint_t_S01_ft.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
@@ -893,6 +893,7 @@ class ImageLabel(QLabel):
                 # 确定标签（左键=1，右键=0）
                 self.add_point(x, y, label_val)
                 self.run_prediction()
+
             # 确保刷子模式关闭
             if self.brush_mode:
                 self.set_brush_mode(False)
@@ -1019,8 +1020,8 @@ class ImageLabel(QLabel):
         # 确保笔触在图像范围内
         x1 = max(0, x1)
         y1 = max(0, y1)
-        x2 = min(width - 1, x2)
-        y2 = min(height - 1, y2)
+        x2 = min(width - 2, x2)
+        y2 = min(height - 2, y2)
 
         # 创建圆形区域的掩码
         xx, yy = np.mgrid[y1:y2 + 1, x1:x2 + 1]  # 注意这里y在前x在后
@@ -1439,6 +1440,9 @@ class SmartAnnotationTool(QWidget):
         super().__init__(parent)
         self.setWindowTitle("SAM2 Interactive Annotation")
         self.setGeometry(100, 100, 1200, 800)
+
+        # flag of prompts imported
+        self.is_prompt_imported = False
 
         self.frame_dir = None
         self.frame_names = []
@@ -2028,6 +2032,36 @@ class SmartAnnotationTool(QWidget):
         animation.start()
 
     def save_current_masks(self):
+
+        def on_process_finished(exit_code, exit_status):
+            if exit_code == 0 and exit_status == QProcess.NormalExit:
+                # print(f"Successfully generated YOLO annotations at {txt_path}")
+
+                # 标记为已保存
+                self.mask_modified = False
+                # 频闪效果（闪白）
+                self.flash_indicator()
+            else:
+                error = process.readAllStandardError().data().decode()
+                QMessageBox.critical(
+                    self, "YOLO Annotation Error",
+                    f"Failed to generate YOLO annotations:\n{error}"
+                )
+
+                # 清理错误文件
+                if os.path.exists(txt_path):
+                    os.remove(txt_path)
+        # 添加处理标准输出和错误
+        def on_ready_read_stdout():
+            output = process.readAllStandardOutput().data().decode()
+            if output:
+                print("[YOLO Generation] " + output.strip())
+
+        def on_ready_read_stderr():
+            error = process.readAllStandardError().data().decode()
+            if error:
+                print("[YOLO Error] " + error.strip())
+
         """保存当前帧的mask为YOLO格式和PNG格式，只保存当前可见的mask"""
         # 检查是否有可见的mask（考虑全局可见性和对象自身可见性）
         has_visible_masks = False
@@ -2108,47 +2142,21 @@ class SmartAnnotationTool(QWidget):
         # 为YOLO格式准备文件路径
         txt_path = os.path.join(self.save_yolo_path, f"{frame_prefix}.txt")
 
+        # conduct the save before the yolo.txt's process
+        # 标记为已保存
+        self.mask_modified = False
+        # 频闪效果（闪白）
+        self.initialize_video_propagation()
+        self.flash_indicator()
+
         # 创建进程调用外部脚本
         process = QProcess(self)
+        # process.finished.connect(on_process_finished)
         script_path = os.path.join(os.path.dirname(__file__), file_png2yolo)
 
         # 设置进程完成处理
-        def on_process_finished(exit_code, exit_status):
-            if exit_code == 0 and exit_status == QProcess.NormalExit:
-                # print(f"Successfully generated YOLO annotations at {txt_path}")
-
-                # 标记为已保存
-                self.mask_modified = False
-
-                # 频闪效果（闪白）
-                self.flash_indicator()
-            else:
-                error = process.readAllStandardError().data().decode()
-                QMessageBox.critical(
-                    self, "YOLO Annotation Error",
-                    f"Failed to generate YOLO annotations:\n{error}"
-                )
-
-                # 清理错误文件
-                if os.path.exists(txt_path):
-                    os.remove(txt_path)
-
-        process.finished.connect(on_process_finished)
-
-        # 添加处理标准输出和错误
-        def on_ready_read_stdout():
-            output = process.readAllStandardOutput().data().decode()
-            if output:
-                print("[YOLO Generation] " + output.strip())
-
-        def on_ready_read_stderr():
-            error = process.readAllStandardError().data().decode()
-            if error:
-                print("[YOLO Error] " + error.strip())
-
         process.readyReadStandardOutput.connect(on_ready_read_stdout)
         process.readyReadStandardError.connect(on_ready_read_stderr)
-
         # 启动进程
         process.start(sys.executable, [script_path, png_path, txt_path])
 
@@ -2172,7 +2180,7 @@ class SmartAnnotationTool(QWidget):
 
         # 创建淡出动画
         self.flash_animation = QPropertyAnimation(overlay, b"windowOpacity")
-        self.flash_animation.setDuration(100)
+        self.flash_animation.setDuration(80)
         self.flash_animation.setStartValue(0.7)
         self.flash_animation.setEndValue(0.0)
         self.flash_animation.finished.connect(overlay.deleteLater)
@@ -2183,6 +2191,7 @@ class SmartAnnotationTool(QWidget):
         if not self.mask_modified:
             return QMessageBox.Yes  # 如果没有修改，直接继续
 
+        print(f"mask_modified: {self.mask_modified}")
         msg_box = QMessageBox(self)
         msg_box.setIcon(QMessageBox.Question)
         msg_box.setText("You have unsaved mask modifications")
@@ -2363,7 +2372,6 @@ class SmartAnnotationTool(QWidget):
             return
 
         # 检查未保存修改
-        # now we dont check here to get avoid of the double check with next/pre frame
         # result = self.check_for_unsaved_changes()
         # if result != QMessageBox.Yes:
         #     if result == QMessageBox.Cancel:
@@ -2498,7 +2506,8 @@ class SmartAnnotationTool(QWidget):
         # 选择新对象
         self.select_object(btn)
         # here to make sure that each frame will have a propogation from the add_obj_button
-        self.initialize_video_propagation()
+        # if not self.is_prompt_imported:
+        #     self.initialize_video_propagation()
 
     def highlight_mask(self, obj_id):
         """高亮显示指定对象的掩码（闪烁效果）"""
@@ -2633,7 +2642,7 @@ class SmartAnnotationTool(QWidget):
 
         # 更新状态栏
         self.update_prompt_status()
-
+        self.is_prompt_imported = True
         # 如果其他帧有提示，只是存储不处理
         if all_prompts:
             print(f"Stored {sum(len(objs) for objs in all_prompts.values())} prompts for future frames")
@@ -3283,7 +3292,7 @@ class SmartAnnotationTool(QWidget):
             self.prev_frame()
         elif event.key() == Qt.Key_D:
             self.next_frame()
-        elif event.key() in (Qt.Key_W, Qt.Key_S):
+        elif event.key() in (Qt.Key_W, Qt.Key_S): #Qt.Key_S
             # 获取按布局顺序排列的按钮
             button_list = self.get_sorted_buttons()
             if not button_list:  # 没有按钮时不做任何操作
@@ -3307,7 +3316,7 @@ class SmartAnnotationTool(QWidget):
                 obj_id = button_list[new_idx].obj_id
                 self.highlight_mask(obj_id)
 
-            else:  # 下移 (Key_S)
+            else:  # 下移 (Key_S) # cancel this cuz sth got mixed
                 new_idx = current_idx + 1 if current_idx < len(button_list) - 1 else 0
                 obj_id = button_list[new_idx].obj_id
                 self.highlight_mask(obj_id)
