@@ -1443,6 +1443,7 @@ class SmartAnnotationTool(QWidget):
 
         # flag of prompts imported
         self.is_prompt_imported = False
+        self.new_objects_added = False  # 跟踪是否有未传播的新对象
 
         self.frame_dir = None
         self.frame_names = []
@@ -2146,7 +2147,7 @@ class SmartAnnotationTool(QWidget):
         # 标记为已保存
         self.mask_modified = False
         # 频闪效果（闪白）
-        self.initialize_video_propagation()
+        # self.initialize_video_propagation()
         self.flash_indicator()
 
         # 创建进程调用外部脚本
@@ -2505,9 +2506,9 @@ class SmartAnnotationTool(QWidget):
 
         # 选择新对象
         self.select_object(btn)
-        # here to make sure that each frame will have a propogation from the add_obj_button
-        # if not self.is_prompt_imported:
-        #     self.initialize_video_propagation()
+
+        # 标记有新对象添加
+        self.new_objects_added = True
 
     def highlight_mask(self, obj_id):
         """高亮显示指定对象的掩码（闪烁效果）"""
@@ -2883,6 +2884,24 @@ class SmartAnnotationTool(QWidget):
         self.update_prompt_status()
 
     def next_frame(self):
+
+        # 检查是否需要重置传播
+        if self.new_objects_added:
+            reply = QMessageBox.question(
+                self,
+                "New Objects Added",
+                "New objects have been added. Would you like to reset propagation state and include them?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                self.process_prompts_by_add_obj()
+                # 初始化传播
+                self.initialize_video_propagation()
+
+            # 重置状态标记
+            self.new_objects_added = False
+
         # 检查未保存修改
         result = self.check_for_unsaved_changes()
         if result != QMessageBox.Yes:
@@ -2890,7 +2909,7 @@ class SmartAnnotationTool(QWidget):
                 return
 
         # 保存当前帧状态
-        self.save_current_frame_state()
+        # self.save_current_frame_state()
 
         # 继续原逻辑
         if self.current_frame_idx < len(self.frame_names) - 1:
@@ -2898,6 +2917,60 @@ class SmartAnnotationTool(QWidget):
             self.load_frame()
 
         self.update_prompt_status()
+
+    # 新函数：通过已有mask边界框重置状态并准备传播
+    def process_prompts_by_add_obj(self):
+        """使用当前所有可见mask的边界框作为提示重置传播状态"""
+        if not self.image_label or not self.image_label.masks:
+            print("No masks available for repropagation")
+            return
+
+        # 确保有有效预测器
+        if not predictor or not self.inference_state:
+            print("Predictor not initialized")
+            return
+
+        # 重置预测器状态
+        predictor.reset_state(self.inference_state)
+
+        # 准备收集所有可见对象的边界框
+        visible_objects = []
+
+        # 遍历所有mask获取可见对象的边界框
+        for obj_id, mask in self.image_label.masks.items():
+            # 检查对象可见性
+            if self.obj_mask_visible.get(obj_id, True):
+                # 获取对象颜色
+                obj_color = self.obj_colors.get(obj_id, (255, 0, 0))
+
+                # 计算mask的边界框
+                if mask.any():  # 确保不是空mask
+                    # 找到非零像素的坐标
+                    coords = np.argwhere(mask)
+                    if coords.size > 0:
+                        y1, x1 = coords.min(axis=0)
+                        y2, x2 = coords.max(axis=0)
+                        bbox = [x1, y1, x2, y2]
+                        visible_objects.append((obj_id, bbox))
+
+        if not visible_objects:
+            print("No visible masks found for repropagation")
+            return
+
+        # 用所有可见mask的边界框更新预测器状态
+        print(f"Repopulating state with {len(visible_objects)} visible objects")
+        for obj_id, bbox in visible_objects:
+            # 在当前帧处理这些提示
+            self.run_sam_prediction(
+                points=[],
+                labels=[],
+                obj_id=obj_id,
+                box=bbox
+            )
+
+        # 更新最近提示帧
+        self.last_prompt_frame = self.current_frame_idx
+        print("Predictor state reset and populated with existing masks")
 
     def load_frame(self):
         """加载帧的方法（重写以使用传播预测结果）"""
@@ -3383,6 +3456,57 @@ class SmartAnnotationTool(QWidget):
 
         # 刷新显示
         self.image_label.update_display()
+
+        # 调用新函数处理传播逻辑
+        self.process_prompts_by_import_mask()
+
+    def process_prompts_by_import_mask(self):
+        """处理导入的mask：重置SAM2状态并用所有可见mask的边界框初始化传播"""
+        # 1. 重置预测器状态
+        if predictor:
+            if self.inference_state is not None:
+                predictor.reset_state(self.inference_state)
+            else:
+                self.inference_state = predictor.init_state(video_path=self.frame_dir)
+
+        # 2. 准备收集所有可见mask的边界框
+        visible_objects = []
+
+        # 遍历所有mask获取可见对象的边界框
+        for obj_id, mask in self.image_label.masks.items():
+            # 检查对象可见性
+            if self.obj_mask_visible.get(obj_id, True):
+                # 计算mask的边界框
+                if mask.any():  # 确保不是空mask
+                    # 找到非零像素的坐标
+                    coords = np.argwhere(mask)
+                    if coords.size > 0:
+                        y1, x1 = coords.min(axis=0)
+                        y2, x2 = coords.max(axis=0)
+                        bbox = [x1, y1, x2, y2]
+                        visible_objects.append((obj_id, bbox))
+
+        if not visible_objects:
+            print("No visible masks found for propagation")
+            return
+
+        # 3. 用所有可见mask的边界框更新预测器状态
+        print(f"Resetting propagation state with {len(visible_objects)} visible masks")
+        for obj_id, bbox in visible_objects:
+            # 在当前帧处理这些提示
+            self.run_sam_prediction(
+                points=[],
+                labels=[],
+                obj_id=obj_id,
+                box=bbox
+            )
+
+        # 更新最近提示帧
+        self.last_prompt_frame = self.current_frame_idx
+
+        # 4. 初始化传播
+        self.initialize_video_propagation()
+        print("Propagation state reset and initialized with imported masks")
 
     def parse_yolo_txt(self, file_path):
         """解析YOLO格式的TXT文件"""
