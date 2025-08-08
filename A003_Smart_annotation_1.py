@@ -1227,7 +1227,7 @@ class ImageLabel(QLabel):
 
                 print(f"Removed object {obj_id} from propagation results")
 
-    def add_mask(self, obj_id, mask_array):
+    def add_mask(self, obj_id, mask_array, dis_update=True):
         # 确保mask_array是有效的二维数组
         if mask_array is None or mask_array.size == 0:
             print(f"add_mask error: Invalid mask array (obj_id={obj_id})")
@@ -1245,7 +1245,8 @@ class ImageLabel(QLabel):
         self.masks[obj_id] = mask_array
 
         # 强制更新显示
-        self.update_display()
+        if dis_update:
+            self.update_display()
 
     def clear_object_points(self, obj_id):
         """清除特定对象的所有点"""
@@ -3249,7 +3250,7 @@ class SmartAnnotationTool(QWidget):
         # 更新状态栏
         self.update_prompt_status()
 
-    def run_sam_prediction(self, points, labels, obj_id, box=None):
+    def run_sam_prediction(self, points, labels, obj_id, box=None, dis_update=True):
         """运行SAM2预测并更新掩码，支持box参数"""
         print(f'Now the id {obj_id}, points {points}, labels {labels}')
         print(f"Running SAM prediction for obj {obj_id} with {len(points)} points and box {box}")
@@ -3334,7 +3335,7 @@ class SmartAnnotationTool(QWidget):
                 position = out_obj_ids.index(obj_id)
                 mask = (out_mask_logits[position] > 0.0).cpu().numpy()
                 # 添加掩码
-                self.image_label.add_mask(obj_id, mask)
+                self.image_label.add_mask(obj_id, mask, dis_update=dis_update)
                 # 激活按钮（变为对象颜色）
                 if obj_id in self.obj_buttons:
                     self.obj_buttons[obj_id].update_button_style(active=True)
@@ -3450,17 +3451,22 @@ class SmartAnnotationTool(QWidget):
 
         # 根据文件类型解析mask
         if selected_file.endswith('.txt'):
+            self.parse_yolo_txt(selected_file, dis_update=False)
+        elif selected_file.endswith('.png'):
+            self.parse_palette_png(selected_file, dis_update=False)
+
+        # 调用新函数处理传播逻辑
+        self.process_prompts_by_import_mask(dis_update=False)
+
+        # Do it again to refresh current masks
+        if selected_file.endswith('.txt'):
             self.parse_yolo_txt(selected_file)
         elif selected_file.endswith('.png'):
             self.parse_palette_png(selected_file)
-
         # 刷新显示
         self.image_label.update_display()
 
-        # 调用新函数处理传播逻辑
-        self.process_prompts_by_import_mask()
-
-    def process_prompts_by_import_mask(self):
+    def process_prompts_by_import_mask(self, dis_update=True):
         """处理导入的mask：重置SAM2状态并用所有可见mask的边界框初始化传播"""
         # 1. 重置预测器状态
         if predictor:
@@ -3498,7 +3504,8 @@ class SmartAnnotationTool(QWidget):
                 points=[],
                 labels=[],
                 obj_id=obj_id,
-                box=bbox
+                box=bbox,
+                dis_update=dis_update
             )
 
         # 更新最近提示帧
@@ -3508,7 +3515,7 @@ class SmartAnnotationTool(QWidget):
         self.initialize_video_propagation()
         print("Propagation state reset and initialized with imported masks")
 
-    def parse_yolo_txt(self, file_path):
+    def parse_yolo_txt(self, file_path, dis_update=True):
         """解析YOLO格式的TXT文件"""
         try:
             # 获取当前图像尺寸
@@ -3558,7 +3565,7 @@ class SmartAnnotationTool(QWidget):
                 mask = self.polygons_to_mask(polygons, w, h)
 
                 # 添加mask
-                self.image_label.add_mask(obj_id, mask)
+                self.image_label.add_mask(obj_id, mask, dis_update=dis_update)
                 print(f"Import mask for obj_id {obj_id}: {mask.shape}, {mask.sum()} non-zero pixels")
                 # 更新按钮状态
                 if obj_id in self.obj_buttons:
@@ -3571,7 +3578,7 @@ class SmartAnnotationTool(QWidget):
             import traceback
             traceback.print_exc()
 
-    def parse_palette_png(self, file_path):
+    def parse_palette_png(self, file_path, dis_update=True):
         """解析调色板模式的PNG文件"""
         try:
             # 读取PNG文件
@@ -3613,7 +3620,7 @@ class SmartAnnotationTool(QWidget):
                 obj_id = self.find_or_create_object(class_id)
 
                 # 添加mask
-                self.image_label.add_mask(obj_id, class_mask)
+                self.image_label.add_mask(obj_id, class_mask, dis_update=dis_update)
                 print(f"Import mask for obj_id {obj_id}: {class_mask.shape}, {class_mask.sum()} non-zero pixels")
 
                 # 更新按钮状态
