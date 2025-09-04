@@ -60,10 +60,10 @@ try:
     # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_tiny_crf_finetune.yaml/checkpoints/checkpoint_t_S01_ft.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
 
-    # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_b+_crf_finetune.yaml/checkpoints/checkpoint_b+_S01_40.pt")
+    # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_b+_crf_finetune.yaml/checkpoints/checkpoint_b+_S01-05_40.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
 
-    # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01_17.pt")
+    # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01-05_9.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
 
 
@@ -98,7 +98,7 @@ class_map_t = {
     'Liver': '10',
     'Gallbladder': '11',
     'Falciform ligament': '23',
-    'Stomach':'24'}  # 强制对应原图中的顺序调整
+    'Stomach':'24'}
 
 class_map_i = {
     'Curved grasper': '12',
@@ -3171,6 +3171,7 @@ class SmartAnnotationTool(QWidget):
                 continue
 
             class_title = obj.get('classTitle', '')
+            class_title = class_title[0].upper() + class_title[1:] if class_title else class_title # 将 class_title 转换为首字母大写，其余小写的格式
             base_id = None
 
             # 查找映射表
