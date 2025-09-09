@@ -11,10 +11,10 @@ import matplotlib.pyplot as plt
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QFileDialog, QFrame, QScrollArea, QInputDialog, QMessageBox,
-    QSizePolicy, QPushButton, QMenu, QSlider, QProgressDialog, QStatusBar, QLineEdit, QGroupBox, QProgressBar, QDialog, QTextEdit, QDesktopWidget, QComboBox
+    QSizePolicy, QPushButton, QMenu, QSlider, QProgressDialog, QStatusBar, QLineEdit, QGroupBox, QProgressBar, QDialog, QTextEdit, QDesktopWidget, QComboBox, QCompleter
 )
-from PyQt5.QtCore import Qt, QPoint, QEvent, QTimer, QPropertyAnimation, QThread, pyqtSignal, QSize, QProcess, QRect
-from PyQt5.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QBrush, QCursor, QFont, QMovie
+from PyQt5.QtCore import Qt, QPoint, QEvent, QTimer, QPropertyAnimation, QThread, pyqtSignal, QSize, QProcess, QRect, QStringListModel
+from PyQt5.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QBrush, QCursor, QFont, QMovie, QStandardItemModel, QStandardItem
 from tqdm import tqdm
 from PIL import Image, ImageFilter, ImageDraw
 import numpy as np
@@ -98,7 +98,8 @@ class_map_t = {
     'Liver': '10',
     'Gallbladder': '11',
     'Falciform ligament': '23',
-    'Stomach':'24'}
+    'Stomach':'24',
+    'Blood pool': '26'}
 
 class_map_i = {
     'Curved grasper': '12',
@@ -2440,25 +2441,40 @@ class SmartAnnotationTool(QWidget):
             QMessageBox.warning(self, "Invalid Input", "Class name cannot be empty.")
             return
 
-        # 确定类别ID
+        # Set the class name as standard format
+        class_name = class_name[0].upper() + class_name[1:]
         if class_name in class_map_all:
             # 如果输入的是预定义类名，使用其ID
             class_id = int(class_map_all[class_name])
         else:
-            # 对于自定义类别：
-            # 1. 首先检查是否存在已映射的ID
-            if class_name in class_map_i:
-                class_id = int(class_map_i[class_name])
-            else:
-                # 2. 获取最大的现有ID
-                existing_ids = {int(id_val) for id_val in class_map_all.values()} | {int(id_val) for id_val in
-                                                                                     class_map_i.values()}
-                max_id = max(existing_ids) if existing_ids else 0
-                new_base_id = max_id + 1
+            reply = QMessageBox.question(
+                dialog,  # 使用dialog作为父窗口
+                "Add New Class?",
+                f'"{class_name}" is not in the predefined list. Do you want to add it?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
 
-                # 3. 创建新的映射
-                class_map_i[class_name] = new_base_id
-                class_id = new_base_id
+            if reply == QMessageBox.Yes:
+                # 对于自定义类别：
+                # 1. 首先检查是否存在已映射的ID
+                if class_name in class_map_i:
+                    class_id = int(class_map_i[class_name])
+                else:
+                    # 2. 获取最大的现有ID
+                    existing_ids = {int(id_val) for id_val in class_map_all.values()} | {int(id_val) for id_val in
+                                                                                         class_map_i.values()}
+                    max_id = max(existing_ids) if existing_ids else 0
+                    new_base_id = max_id + 1
+
+                    # 3. 创建新的映射
+                    class_map_i[class_name] = new_base_id
+                    class_id = new_base_id
+            else:
+                # 用户选择不添加，清空输入
+                class_dropdown.setCurrentIndex(-1)
+                class_dropdown.setEditText("")
+                return
 
         # 检查是否有相同类别的对象存在
         existing_class_objs = [
@@ -3172,6 +3188,8 @@ class SmartAnnotationTool(QWidget):
 
             class_title = obj.get('classTitle', '')
             class_title = class_title[0].upper() + class_title[1:] if class_title else class_title # 将 class_title 转换为首字母大写，其余小写的格式
+            if class_title == 'Ligasure':
+                class_title = 'Harmonic scalpel'
             base_id = None
 
             # 查找映射表
