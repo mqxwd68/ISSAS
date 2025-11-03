@@ -5,22 +5,28 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 import matplotlib
+from sympy.codegen import Print
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QFileDialog, QFrame, QScrollArea, QInputDialog, QMessageBox,
-    QSizePolicy, QPushButton, QMenu, QSlider, QProgressDialog, QStatusBar, QLineEdit, QGroupBox, QProgressBar, QDialog, QTextEdit, QDesktopWidget, QComboBox, QCompleter
+    QSizePolicy, QPushButton, QMenu, QSlider, QProgressDialog, QStatusBar, QLineEdit, QGroupBox, QProgressBar, QDialog,
+    QTextEdit, QDesktopWidget, QComboBox, QCompleter
 )
-from PyQt5.QtCore import Qt, QPoint, QEvent, QTimer, QPropertyAnimation, QThread, pyqtSignal, QSize, QProcess, QRect, QStringListModel
-from PyQt5.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QBrush, QCursor, QFont, QMovie, QStandardItemModel, QStandardItem
+from PyQt5.QtCore import Qt, QPoint, QEvent, QTimer, QPropertyAnimation, QThread, pyqtSignal, QSize, QProcess, QRect, \
+    QStringListModel
+from PyQt5.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QBrush, QCursor, QFont, QMovie, QStandardItemModel, \
+    QStandardItem
 from tqdm import tqdm
 from PIL import Image, ImageFilter, ImageDraw
 import numpy as np
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 from scipy.ndimage import binary_erosion, binary_dilation, label
+
 # import cv2
 
 # 设置环境变量
@@ -63,9 +69,9 @@ try:
     # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_b+_crf_finetune.yaml/checkpoints/checkpoint_b+_S01-05_40.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
 
-    # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01-05_9.pt")
+    # sam2_checkpoint_t = os.path.join(script_dir,
+    #                                  "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01-05_9.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
-
 
     try:
         predictor = build_sam2_video_predictor(model_cfg_t, sam2_checkpoint_t, device=device)
@@ -79,6 +85,7 @@ except ImportError:
 
 try:
     from scipy.ndimage import binary_erosion, binary_dilation, label
+
     has_scipy = True
 except ImportError:
     has_scipy = False
@@ -98,7 +105,7 @@ class_map_t = {
     'Liver': '10',
     'Gallbladder': '11',
     'Falciform ligament': '23',
-    'Stomach':'24',
+    'Stomach': '24',
     'Blood pool': '26'}
 
 class_map_i = {
@@ -113,7 +120,7 @@ class_map_i = {
     'Needle holder': '20',
     'Needle': '21',
     'Suture': '22',
-    'Hemoloc applier':'25'
+    'Hemoloc applier': '25'
 }
 
 # 合并两个映射表
@@ -240,6 +247,7 @@ class LoadingDialog(QDialog):
     def flush(self):
         """标准输出需要实现flush方法"""
         pass
+
 
 class ObjectButton(QWidget):
     def __init__(self, main_window, obj_id, name, color, active=False, parent=None):
@@ -378,6 +386,7 @@ class ObjectButton(QWidget):
                 return True  # 事件已处理
 
         return super().eventFilter(source, event)
+
 
 class ImageLabel(QLabel):
     def __init__(self, smart_annotation_tool, parent=None):
@@ -619,9 +628,9 @@ class ImageLabel(QLabel):
         # 处理掩码显示（考虑刷子模式和可见性）
         should_draw_masks = self.masks_visible
         # if self.current_obj_id is not None:
-            # 有选中对象时，使用该对象的可见性状态
-            # should_draw_masks = self.obj_mask_visible.get(self.current_obj_id, True)
-            # print("should_draw_masks: ", should_draw_masks)
+        # 有选中对象时，使用该对象的可见性状态
+        # should_draw_masks = self.obj_mask_visible.get(self.current_obj_id, True)
+        # print("should_draw_masks: ", should_draw_masks)
 
         # 如果需要在刷子模式中特殊处理当前对象的掩码
         if self.is_brushing and self.current_obj_id in self.masks:
@@ -660,7 +669,7 @@ class ImageLabel(QLabel):
                 color_layer = Image.new('RGBA', img.size, highlight_color)
                 composite.paste(color_layer, (0, 0), mask_img)
         elif should_draw_masks:  # 非刷子模式，只有全局或选中对象可见时才绘制
-        # else:
+            # else:
             # 正常绘制所有掩码（如果它们可见）
             for obj_id, mask in self.masks.items():
                 if mask is None or mask.size == 0:
@@ -1119,7 +1128,7 @@ class ImageLabel(QLabel):
             self.boxes_visible = not self.boxes_visible
             print(f"Points, masks and boxes are now {'visible' if self.masks_visible else 'hidden'}")
             self.update_display()
-        # 按键'C'：清除当前对象的所有点和框
+        # 按键'R'：清除当前对象的所有点和框
         elif event.key() == Qt.Key_R and self.current_obj_id:
             self.object_points[self.current_obj_id] = []
             self.object_labels[self.current_obj_id] = []
@@ -1153,12 +1162,13 @@ class ImageLabel(QLabel):
         elif event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_S:
             self.smart_annotation_tool.save_current_masks()
 
-        # 新增：按E键清除选中目标的mask
-        elif event.key() == Qt.Key_E and self.current_obj_id:
-            self.clear_mask_for_current_object()
-            self.save_current_state()  # 保存状态到历史记录
-            self.update_display()
-            print(f"Cleared mask for object {self.current_obj_id}")
+        # NEW: presse E to switch porpgation mode, in the SmarAnnotationTool class
+        # elif event.key() == Qt.Key_E and self.current_obj_id:
+        #     self.clear_mask_for_current_object()
+        #     self.save_current_state()  # 保存状态到历史记录
+        #     self.update_display()
+        #     print(f"Cleared mask for object {self.current_obj_id}")
+
         else:
             super().keyPressEvent(event)
 
@@ -1180,7 +1190,7 @@ class ImageLabel(QLabel):
         # 清除当前帧的mask
         if obj_id in self.masks:
             self.masks[obj_id] = np.zeros(
-                (h,w),
+                (h, w),
                 dtype=np.uint8
             )
 
@@ -1273,6 +1283,7 @@ class ImageLabel(QLabel):
         """设置当前活动对象"""
         self.current_obj_id = obj_id
         print(f"Set current object to: {obj_id}")
+
 
 class ThumbnailLabel(QLabel):
     def __init__(self, smart_annotation_tool, parent=None):
@@ -1437,6 +1448,7 @@ class ThumbnailLabel(QLabel):
             self.viewport_rect = QRect(thumb_x, thumb_y, thumb_width, thumb_height)
             self.update()  # 触发重绘
 
+
 class SmartAnnotationTool(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1446,7 +1458,7 @@ class SmartAnnotationTool(QWidget):
         # flag of prompts imported
         self.is_prompt_imported = False
         self.new_objects_added = False  # 跟踪是否有未传播的新对象
-
+        self.propgation = True
         self.frame_dir = None
         self.frame_names = []
         self.current_frame_idx = 0
@@ -1488,6 +1500,7 @@ class SmartAnnotationTool(QWidget):
         self.frame_input.setPlaceholderText("Enter frame name or number")
         self.frame_input.returnPressed.connect(self.jump_to_frame)
         self.frame_input.setToolTip("Enter frame name without extension or frame number")
+        self.frame_input.setMaximumWidth(max(150, int(unified_width / 2)))
         frame_nav_layout.addWidget(self.frame_input)
 
         # 后缀标签
@@ -1495,7 +1508,7 @@ class SmartAnnotationTool(QWidget):
         frame_nav_layout.addWidget(self.frame_suffix_label)
 
         # 跳转按钮
-        jump_button = QPushButton("Go")
+        jump_button = QPushButton("GO")
         jump_button.clicked.connect(self.jump_to_frame)
         frame_nav_layout.addWidget(jump_button)
 
@@ -1670,6 +1683,23 @@ class SmartAnnotationTool(QWidget):
         # 存储首次选择的mask路径和目录
         self.first_mask_path = None
         self.masks_base_dir = None
+
+        # 在左侧布局中add propgation mode
+        self.propgation_button = QPushButton("Propgation Mode: ON")
+        self.propgation_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;  /* 蓝色 */
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #0b7dda;
+            }
+        """)
+        self.propgation_button.clicked.connect(self.toggle_propgation_mode)
+        left_layout.addWidget(self.propgation_button)
 
         # 对象滚动区域
         self.scroll_area = QScrollArea()
@@ -1979,6 +2009,41 @@ class SmartAnnotationTool(QWidget):
         # 添加到主布局
         main_layout.addLayout(bottom_main_layout)
 
+    def toggle_propgation_mode(self):
+        """切换传播模式状态"""
+        # 切换传播模式状态
+        self.propgation = not self.propgation
+        print("Current propgation mode: {}".format(self.propgation))
+        # 更新按钮文本和样式
+        if self.propgation:
+            self.propgation_button.setText("Propgation Mode: ON")
+            self.propgation_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #2196F3;  /* 蓝色 */
+                    color: white;
+                    font-weight: bold;
+                    padding: 8px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #0b7dda;
+                }
+            """)
+        else:
+            self.propgation_button.setText("Propgation Mode: OFF")
+            self.propgation_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #BBDEFB;  /* 浅蓝色 */
+                    color: #333;
+                    font-weight: bold;
+                    padding: 8px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #90CAF9;
+                }
+            """)
+
     def update_thumbnail(self):
         """当主视图滚动时更新缩略图的矩形框位置"""
         if hasattr(self, 'thumbnail_label') and self.thumbnail_label:
@@ -1998,7 +2063,6 @@ class SmartAnnotationTool(QWidget):
         # 如果有图像加载，更新缩略图
         if hasattr(self.image_label, 'original_image') and self.image_label.original_image:
             self.image_label.update_display()
-
 
     def highlight_operation(self, operation_name):
         """高亮显示操作面板"""
@@ -2054,6 +2118,7 @@ class SmartAnnotationTool(QWidget):
                 # 清理错误文件
                 if os.path.exists(txt_path):
                     os.remove(txt_path)
+
         # 添加处理标准输出和错误
         def on_ready_read_stdout():
             output = process.readAllStandardOutput().data().decode()
@@ -2113,7 +2178,8 @@ class SmartAnnotationTool(QWidget):
         # 遍历所有可见对象
         for obj_id, mask, base_class_id in visible_mask_info:
             class_mask[mask] = base_class_id
-            print(f"Saving mask for obj_id {base_class_id}: {mask.shape}, {mask.sum()} non-zero pixels, maximum of mask is {np.max(mask)}")
+            print(
+                f"Saving mask for obj_id {base_class_id}: {mask.shape}, {mask.sum()} non-zero pixels, maximum of mask is {np.max(mask)}")
             print(f"Saving visible mask for object {obj_id} with class ID {base_class_id}")
 
         # 保存PNG文件（调色板模式）
@@ -2247,7 +2313,8 @@ class SmartAnnotationTool(QWidget):
     #     # 更新后缀标签
     #     self.frame_suffix_label.setText(ext_part)
 
-    def jump_to_frame(self):
+    def jump_to_frame(self, propgation=False):
+        self.propgation = propgation
         # 检查未保存修改
         result = self.check_for_unsaved_changes()
         if result != QMessageBox.Yes:
@@ -2369,7 +2436,8 @@ class SmartAnnotationTool(QWidget):
         if hasattr(self, 'status_bar'):
             self.status_bar.showMessage(message)
 
-    def slider_value_changed(self, value):
+    def slider_value_changed(self, value, propgation=False):
+        self.propgation = propgation
         """当滚动条值改变时切换帧"""
         if not self.frame_names:
             return
@@ -2619,7 +2687,7 @@ class SmartAnnotationTool(QWidget):
                 has_rectangle = False
                 for obj in prompt_data['objects']:
                     if obj.get('geometryType') != 'rectangle':
-                        continue # still no rec
+                        continue  # still no rec
                     else:
                         has_rectangle = True
                         break
@@ -2710,7 +2778,8 @@ class SmartAnnotationTool(QWidget):
             return False
 
         # 如果已经生成了该帧，直接返回
-        if frame_idx in self.generated_frames:
+        if frame_idx in self.generated_frames or not self.propgation:  # here if no propgation, just return it
+            print("no propgation or frame_idx already in generated_frames!")
             return True
 
         # 如果尚未开始传播，从第一帧开始
@@ -2883,8 +2952,9 @@ class SmartAnnotationTool(QWidget):
         print(f"Saved state for frame {self.current_frame_idx}")
         print(f"Current frame states: {len(self.frame_states)} frames saved")
 
-    def prev_frame(self):
+    def prev_frame(self, propgation=False):
         # 检查未保存修改
+        self.propgation = propgation  # if go back to previous frame, do not propgation
         result = self.check_for_unsaved_changes()
         if result != QMessageBox.Yes:
             if result == QMessageBox.Cancel:
@@ -2900,8 +2970,8 @@ class SmartAnnotationTool(QWidget):
 
         self.update_prompt_status()
 
-    def next_frame(self):
-
+    def next_frame(self, propgation=True):
+        # self.propgation = propgation  # if move to next frame, do the propgation
         # 检查是否需要重置传播
         if self.new_objects_added:
             reply = QMessageBox.question(
@@ -3007,7 +3077,7 @@ class SmartAnnotationTool(QWidget):
             self.image_label.reset_state()
 
             # 检查当前帧是否有未导入的提示
-            if self.current_frame_idx in self.pending_prompts and len(self.pending_prompts[self.current_frame_idx]) > 0 :
+            if self.current_frame_idx in self.pending_prompts and len(self.pending_prompts[self.current_frame_idx]) > 0:
                 # 询问用户是否导入提示
                 reply = QMessageBox.question(
                     self, "Import Prompts?",
@@ -3031,29 +3101,32 @@ class SmartAnnotationTool(QWidget):
             propagated_masks_available = False
             if hasattr(self, 'frame_generator') and self.frame_generator is not None:
                 if self.generate_frame(self.current_frame_idx):
-                    # 从传播生成器获取结果
-                    obj_ids, mask_logits = self.generated_frames[self.current_frame_idx]
+                    if self.propgation:
+                        # 从传播生成器获取结果
+                        obj_ids, mask_logits = self.generated_frames[self.current_frame_idx]
 
-                    # 创建或更新当前帧的mask字典
-                    if self.current_frame_idx not in self.masks:
-                        self.masks[self.current_frame_idx] = {}
+                        # 创建或更新当前帧的mask字典
+                        if self.current_frame_idx not in self.masks:
+                            self.masks[self.current_frame_idx] = {}
 
-                    # 存储生成的掩码
-                    for i, obj_id in enumerate(obj_ids):
-                        mask = (mask_logits[i] > 0.0).cpu().numpy()
-                        self.masks[self.current_frame_idx][obj_id] = mask
+                        # 存储生成的掩码
+                        for i, obj_id in enumerate(obj_ids):
+                            mask = (mask_logits[i] > 0.0).cpu().numpy()
+                            self.masks[self.current_frame_idx][obj_id] = mask
 
-                        self.image_label.add_mask(obj_id, mask)
-                        if obj_id in self.obj_buttons:
-                            self.obj_buttons[obj_id].update_button_style(active=True)
+                            self.image_label.add_mask(obj_id, mask)
+                            if obj_id in self.obj_buttons:
+                                self.obj_buttons[obj_id].update_button_style(active=True)
 
-                    # 更新UI显示
-                    # self.image_label.object_masks = self.masks[self.current_frame_idx]
+                        # 更新UI显示
+                        # self.image_label.object_masks = self.masks[self.current_frame_idx]
 
-                    print(f"Loaded propagated masks for frame {self.current_frame_idx}")
-                    propagated_masks_available = True
-                    # 立即更新显示
-                    self.image_label.update_display()
+                        print(f"Loaded propagated masks for frame {self.current_frame_idx}")
+                        propagated_masks_available = True
+                        # 立即更新显示
+                        self.image_label.update_display()
+                    else:
+                        print("Prop not avalible")
 
             # 2. 如果没有传播生成的掩码，尝试恢复保存的状态
             if not propagated_masks_available:
@@ -3089,18 +3162,21 @@ class SmartAnnotationTool(QWidget):
                     print("Initialized inference state")
                 else:
                     # 重置状态（不覆盖UI显示）
-                    predictor.reset_state(self.inference_state)
-                    print("Reset inference state for propagation")
+                    if not self.propgation:
+                        print("Propagation is not used in back moving / frame jumping")
+                    else:  # if move to next frame, do the propgation
+                        predictor.reset_state(self.inference_state)
+                        print("Reset inference state for propagation")
 
-                    # 重放所有对象的点和框以重新生成掩码
-                    for obj_id in self.image_label.object_points:
-                        if obj_id in self.obj_buttons:
-                            points = self.image_label.object_points.get(obj_id, [])
-                            labels = self.image_label.object_labels.get(obj_id, [])
-                            box = self.image_label.object_boxes.get(obj_id, None)
-                            if points and labels or box is not None:
-                                print(f"Replaying points and box for obj_id {obj_id}")
-                                self.run_sam_prediction(points, labels, obj_id, box=box)
+                        # 重放所有对象的点和框以重新生成掩码
+                        for obj_id in self.image_label.object_points:
+                            if obj_id in self.obj_buttons:
+                                points = self.image_label.object_points.get(obj_id, [])
+                                labels = self.image_label.object_labels.get(obj_id, [])
+                                box = self.image_label.object_boxes.get(obj_id, None)
+                                if points and labels or box is not None:
+                                    print(f"Replaying points and box for obj_id {obj_id}")
+                                    self.run_sam_prediction(points, labels, obj_id, box=box)
 
             # 更新按钮激活状态
             for obj_id, btn in self.obj_buttons.items():
@@ -3187,7 +3263,8 @@ class SmartAnnotationTool(QWidget):
                 continue
 
             class_title = obj.get('classTitle', '')
-            class_title = class_title[0].upper() + class_title[1:] if class_title else class_title # 将 class_title 转换为首字母大写，其余小写的格式
+            class_title = class_title[0].upper() + class_title[
+                                                   1:] if class_title else class_title  # 将 class_title 转换为首字母大写，其余小写的格式
             if class_title == 'Ligasure':
                 class_title = 'Harmonic scalpel'
             base_id = None
@@ -3385,7 +3462,9 @@ class SmartAnnotationTool(QWidget):
             self.prev_frame()
         elif event.key() == Qt.Key_D:
             self.next_frame()
-        elif event.key() in (Qt.Key_W, Qt.Key_S): #Qt.Key_S
+        elif event.key() == Qt.Key_Q: # import refined masks
+            self.import_mask()
+        elif event.key() in (Qt.Key_W, Qt.Key_S):  # Qt.Key_S
             # 获取按布局顺序排列的按钮
             button_list = self.get_sorted_buttons()
             if not button_list:  # 没有按钮时不做任何操作
@@ -3484,6 +3563,7 @@ class SmartAnnotationTool(QWidget):
             self.parse_palette_png(selected_file)
         # 刷新显示
         self.image_label.update_display()
+        self.propgation = False
 
     def process_prompts_by_import_mask(self, dis_update=True):
         """处理导入的mask：重置SAM2状态并用所有可见mask的边界框初始化传播"""
@@ -3710,6 +3790,7 @@ class SmartAnnotationTool(QWidget):
         mask = np.array(img)
 
         return mask > 0
+
 
 if __name__ == "__main__":
     # 检查是否传递了文件夹路径作为参数
