@@ -52,13 +52,13 @@ try:
     # sam2_checkpoint_t = os.path.join(script_dir, "../checkpoints/sam2.1_hiera_tiny.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
 
-    sam2_checkpoint_t = os.path.join(script_dir, "SAM_model/sam2.1_hiera_large.pt")
-    model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
+    # sam2_checkpoint_t = os.path.join(script_dir, "SAM_model/sam2.1_hiera_large.pt")
+    # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
 
     # sam2_checkpoint_t = os.path.join(script_dir, "../checkpoints/sam2.1_hiera_base_plus.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
     ########################################################################################
-    # FThe fine-tuned
+    # The fine-tuned
 
     # sam2_checkpoint_t = os.path.join(script_dir, "MedSAM2_models/checkpoint_t_S01_ft.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
@@ -69,9 +69,9 @@ try:
     # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_b+_crf_finetune.yaml/checkpoints/checkpoint_b+_S01-05_40.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
 
-    # sam2_checkpoint_t = os.path.join(script_dir,
-    #                                  "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01-05_9.pt")
-    # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
+    sam2_checkpoint_t = os.path.join(script_dir,
+                                     "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01-05_9.pt")
+    model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
 
     try:
         predictor = build_sam2_video_predictor(model_cfg_t, sam2_checkpoint_t, device=device)
