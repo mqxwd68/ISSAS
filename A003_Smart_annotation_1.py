@@ -120,7 +120,8 @@ class_map_i = {
     'Needle holder': '20',
     'Needle': '21',
     'Suture': '22',
-    'Hemoloc applier': '25'
+    'Hemoloc applier': '25',
+    'Ligasure': '27'
 }
 
 # 合并两个映射表
