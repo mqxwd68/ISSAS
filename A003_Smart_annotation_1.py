@@ -23,14 +23,14 @@ from tqdm import tqdm
 from PIL import Image, ImageFilter, ImageDraw
 import numpy as np
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 from scipy.ndimage import binary_erosion, binary_dilation, label
 
 # import cv2
 
 # 设置环境变量
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+# os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 # Select computation device
 if torch.cuda.is_available():
@@ -52,13 +52,13 @@ try:
     # sam2_checkpoint_t = os.path.join(script_dir, "../checkpoints/sam2.1_hiera_tiny.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
 
-    # sam2_checkpoint_t = os.path.join(script_dir, "SAM_model/sam2.1_hiera_large.pt")
-    # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
+    sam2_checkpoint_t = os.path.join(script_dir, "SAM_model/sam2.1_hiera_large.pt")
+    model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
 
     # sam2_checkpoint_t = os.path.join(script_dir, "../checkpoints/sam2.1_hiera_base_plus.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
     ########################################################################################
-    # The fine-tuned
+    # FThe fine-tuned
 
     # sam2_checkpoint_t = os.path.join(script_dir, "MedSAM2_models/checkpoint_t_S01_ft.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_t.yaml"
@@ -69,9 +69,9 @@ try:
     # sam2_checkpoint_t = os.path.join(script_dir, "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_b+_crf_finetune.yaml/checkpoints/checkpoint_b+_S01-05_40.pt")
     # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"
 
-    sam2_checkpoint_t = os.path.join(script_dir,
-                                     "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01-05_9.pt")
-    model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
+    # sam2_checkpoint_t = os.path.join(script_dir,
+    #                                  "../training/sam2_logs/configs/sam2.1_training/sam2.1_hiera_large_crf_finetune.yaml/checkpoints/checkpoint_l_S01-05_9.pt")
+    # model_cfg_t = "../sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
 
     try:
         predictor = build_sam2_video_predictor(model_cfg_t, sam2_checkpoint_t, device=device)
@@ -2972,7 +2972,7 @@ class SmartAnnotationTool(QWidget):
         self.update_prompt_status()
 
     def next_frame(self, propgation=True):
-        # self.propgation = propgation  # if move to next frame, do the propgation
+        self.propgation = propgation  # if move to next frame, do the propgation
         # 检查是否需要重置传播
         if self.new_objects_added:
             reply = QMessageBox.question(
@@ -3266,8 +3266,8 @@ class SmartAnnotationTool(QWidget):
             class_title = obj.get('classTitle', '')
             class_title = class_title[0].upper() + class_title[
                                                    1:] if class_title else class_title  # 将 class_title 转换为首字母大写，其余小写的格式
-            if class_title == 'Ligasure':
-                class_title = 'Harmonic scalpel'
+            # if class_title == 'Ligasure':
+            #     class_title = 'Harmonic scalpel'
             base_id = None
 
             # 查找映射表
