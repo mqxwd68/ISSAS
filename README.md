@@ -1,3 +1,4 @@
+![logo](imgs/logo.png)
 # Gastro28 and ISSAS
 
 ### **A Multi-level Gastrectomy Video Dataset and Interactive SAM2-based Smart Annotation System for Surgical Scene Understanding**
