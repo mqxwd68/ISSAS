@@ -23,7 +23,10 @@ from tqdm import tqdm
 from PIL import Image, ImageFilter, ImageDraw
 import numpy as np
 
+
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 from scipy.ndimage import binary_erosion, binary_dilation, label
 
